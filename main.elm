@@ -1,4 +1,4 @@
-module Easetest where
+module LD33 where
 import Graphics.Element exposing (..)
 import Text exposing (..)
 import Color exposing (..)
@@ -11,6 +11,9 @@ import Signal exposing (..)
 import Keyboard
 import Random
 import Easing exposing (..) 
+
+screenWidth = 1024
+screenHeight = 768
 
 type Action = Spin | Tick Time
 
@@ -55,20 +58,14 @@ stepAnimation t animation (Sprite s) =
                     }
                 _ -> Sprite s
 
-
-
 animLength = 1500
 animAmount = 90
 
-buttonImg = toForm (image 57 126 "graham.png")
+goblinImg = toForm (image 16 16 "assets/goblin_run_down.gif")
+backgroundImg = toForm (tiledImage screenWidth screenHeight "assets/sand_1.png")
 
-buttonImg2 = group
-    [ rect 40 100 |> outlined (dashed red)
-    , rect 35 95 |> filled blue
-    , rect 100 2 |> filled red
-    ]
 button = Sprite
-         { shape = buttonImg
+         { shape = goblinImg
          , rot = 0
          , x = -250
          , y = 150
@@ -161,11 +158,13 @@ allNothing l =
         (List.length flist) == 0
 
 view : Sprite -> Element
-view (Sprite s) = collage 1024 768 [s.shape 
-                            |> rotate (degrees s.rot)
-                            |> moveX s.x
-                            |> moveY s.y
-                         ]   
+view (Sprite s) = collage screenWidth screenHeight 
+                    [ backgroundImg
+                    , s.shape 
+                        |> rotate (degrees s.rot)
+                        |> moveX s.x
+                        |> moveY s.y
+                    ]   
 
 ticks = map Tick (fps 60)
 keys = map (\_ -> Spin) Keyboard.space
