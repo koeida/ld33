@@ -11,70 +11,29 @@ import Signal exposing (..)
 import Keyboard
 import Random
 import Easing exposing (..) 
+import Model exposing (..)
+import Misc exposing (..)
 
 screenWidth = 1024
 screenHeight = 768
-
-type Action = Spin | Tick Time
-
-type alias Position = {x: Float, y: Float}
-
-type alias Sprite = 
-    { shape : Form
-    , rot : Float
-    , animations : List (Maybe AnimationState)
-    , pos : Position 
-    , brain : Brain
-    , kind : EntityKind
-    }
-
-type Brain = Standing | Moving Position
-type EntityKind = Player | Goblin | Warrior 
-
-type AnimationType 
-    = Rotation 
-    | XPos 
-    | YPos
-
-type AnimationState = AnimationState 
-    { elapsedTime : Time
-    , delay : Time
-    , startVal : Float
-    , endVal : Float
-    , easing : (Float -> Float)
-    , len : Float
-    , animationType : AnimationType
-    }
-
---Apply the current animation state to the sprite
-stepAnimation : Maybe AnimationState -> Sprite -> Sprite
-stepAnimation animation s =
-    case animation of
-        Nothing ->
-            s
-        Just (AnimationState anim) ->
-           let 
-               pos = s.pos
-           in
-               case anim.animationType of
-                    Rotation ->
-                        { s | rot <- ease anim.easing float anim.startVal anim.endVal anim.len anim.elapsedTime 
-                        }
-                    XPos ->
-                        { s | pos <- {pos | x <-  ease anim.easing float anim.startVal anim.endVal anim.len anim.elapsedTime}
-                        }
-                    YPos ->
-                        { s | pos <- {pos | y <-  ease anim.easing float anim.startVal anim.endVal anim.len anim.elapsedTime}
-                        }
-                    _ -> s
 
 animLength = 1500
 animAmount = 90
 
 goblinImg = toForm (image 16 16 "assets/goblin_run_down.gif")
+playerImg = toForm (image 32 32 "assets/player_stand.png")
 backgroundImg = toForm (tiledImage screenWidth screenHeight "assets/sand_1.png")
 
-goblins = List.map (\x -> goblin (Random.initialSeed x)) [0..200]
+startingGoblins = List.map (\x -> goblin (Random.initialSeed x)) [0..200]
+
+startingPlayer = 
+    { shape = playerImg
+    , rot = 0
+    , brain = Standing
+    , kind = Player
+    , pos = {x = 100, y = 100}
+    , animations = []
+    }
 
 goblin seed = 
     let 
@@ -122,34 +81,36 @@ tickSprite t s =
        { s' | animations <- animations' }
 
 
-update : Action -> (List Sprite) -> (List Sprite)
-update action ss =
-    case action of
-        Tick t -> List.map (tickSprite t) ss
-        Spin -> ss 
+update : Event -> World -> World
+update event world =
+    case event of
+        NewFrame t -> {world | goblins <- List.map (tickSprite t) world.goblins }
+        Keys k -> world 
 
-allNothing : List (Maybe a) -> Bool
-allNothing l =
-    let
-        flist = List.filter (\m -> case m of 
-                                       Nothing -> False 
-                                       _ -> True) l
-    in
-        (List.length flist) == 0
-
-view : List Sprite -> Element
-view ss = 
+view : World -> Element
+view world = 
     let 
         shapes = List.map (\s -> s.shape
                         |> rotate (degrees s.rot)
                         |> moveX s.pos.x
-                        |> moveY s.pos.y) ss
+                        |> moveY s.pos.y) world.goblins
+        player = world.player.shape 
+            |> moveX world.player.pos.x 
+            |> moveY world.player.pos.y
     in
         collage screenWidth screenHeight 
-                        ([ backgroundImg ] ++ shapes) 
+                        ([ backgroundImg ] ++ shapes ++ [player]) 
 
-ticks = map Tick (fps 60)
-keys = map (\_ -> Spin) Keyboard.space
-streams = merge ticks keys
+keyinput : Signal Event
+keyinput = 
+    let 
+        keySignal = map2 (\a s -> Keys {x = a.x, y = a.y, space = s}) Keyboard.arrows Keyboard.space
+    in
+        sampleOn (every <| 10 * millisecond) keySignal
 
-main = view <~ foldp update goblins streams
+ticks = NewFrame <~ fps 30
+streams = merge ticks keyinput
+
+startWorld = { goblins = startingGoblins, player = startingPlayer } 
+
+main = view <~ foldp update startWorld streams
