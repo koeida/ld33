@@ -23,7 +23,7 @@ type Event = Keys KeyInput | NewEnemy Int | NewFrame Float
 type alias Position = {x: Float, y: Float}
 
 type alias Sprite = 
-    { shape : Form
+    { shape : State -> Form
     , rot : Float
     , animations : List (Maybe AnimationState)
     , pos : Position 
@@ -31,10 +31,14 @@ type alias Sprite =
     , following : Maybe Position
     , nextFollow : Time
     , moving : Bool
+    , stress : Float 
+    , state : State
     , kind : EntityKind
     }
 
 type EntityKind = Player | Goblin | AlphaGoblin | Warrior 
+
+type State = Normal | Attacking | Fleeing
 
 type AnimationType 
     = Rotation 

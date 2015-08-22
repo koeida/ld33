@@ -20,9 +20,13 @@ screenHeight = 768
 animLength = 1500
 animAmount = 90
 
-goblinImg = toForm (image 16 16 "assets/goblin_run_down.gif")
-playerImg = toForm (image 32 32 "assets/player_stand.png")
-humanImg = toForm (image 32 32 "assets/human_walking.gif")
+goblinImg s = toForm (image 16 16 "assets/goblin_run_down.gif")
+playerImg s = toForm (image 32 32 "assets/player_stand.png")
+humanImg s = 
+    case s of
+        Normal -> toForm (image 32 32 "assets/human_walking.gif")
+        Attacking -> toForm (image 64 32 "assets/human_attacking.gif") 
+        Fleeing -> toForm (image 32 32 "assets/human_walking.gif")
 backgroundImg = toForm (tiledImage screenWidth screenHeight "assets/sand_1.png")
 
 
@@ -33,6 +37,8 @@ startingPlayer =
     , target = Nothing
     , following = Nothing
     , nextFollow = 0
+    , stress = 0
+    , state = Normal
     , moving = True
     , pos = {x = 100, y = 100}
     , animations = []
@@ -50,6 +56,8 @@ human seed =
        , rot = 0
        , kind = Warrior
        , moving = True
+       , stress = 0
+       , state = Normal
        , following = Nothing
        , nextFollow = 0
        , target = Nothing
@@ -60,8 +68,8 @@ human seed =
 
 goblin seed = 
     let 
-        (xpos,seed') = Random.generate (Random.float -50.0 150.0) seed
-        (ypos,seed'') = Random.generate (Random.float -50.0 150.0) seed'
+        (xpos,seed') = Random.generate (Random.float -350.0 -300.0) seed
+        (ypos,seed'') = Random.generate (Random.float -400.0 400.0) seed'
         (hasTarget, seed''') = Random.generate (Random.float 0 100) seed''
         (targx,seed'''') = Random.generate (Random.float -500 500) seed'''
         (targy,seed''''') = Random.generate (Random.float -300 300) seed'''
@@ -70,10 +78,12 @@ goblin seed =
          , rot = 0
          , kind = if hasTarget > 90 then AlphaGoblin else Goblin
          , moving = True
+         , stress = 0
+         , state = Normal
          , following = Nothing
          , nextFollow = 250
          , target = if hasTarget > 90 then Just {x = targx, y = targy} else Nothing
-         , pos = {x = -50 + (xpos * 16),y = ypos}
+         , pos = {x = xpos,y = ypos}
          , animations = []
                         --[Just (AnimationState 
                         --         { elapsedTime = 0
@@ -150,7 +160,7 @@ getNewTarget seed t gs g =
        else
         if g.kind == AlphaGoblin then g else
             let
-                minDistance = 30
+                minDistance = 50
                 newTarget = gs 
                             |> List.filter .moving
                             |> List.map (\s -> {d = distance g s,
@@ -206,6 +216,28 @@ herding player goblin =
           then { goblin | pos <- pos'}
           else goblin
 
+updateHuman : Time -> World -> Sprite -> Sprite
+updateHuman t world human =
+    case human.state of
+        Normal ->
+            let 
+                pos = human.pos 
+                pos' = {pos | x <- pos.x - (0.01 * t)}
+                nearbyGobs = List.any (\g -> (distance g human) < 32) world.goblins 
+                state' = if nearbyGobs then Attacking else human.state
+            in
+                {human | pos <- pos', state <- state'}
+        Attacking ->
+            human
+        Fleeing ->
+            let 
+                pos = human.pos 
+                pos' = {pos | x <- pos.x + (0.01 * t)}
+            in
+                {human | pos <- pos'}
+
+
+
 update : Event -> World -> World
 update event world =
     case event of
@@ -216,8 +248,9 @@ update event world =
                                      (herding world.player) <<
                                      (getNewTarget seed' t world.goblins))
                                       world.goblins 
+                humans' = List.map (updateHuman t world) world.humans
             in
-               { world | goblins <- goblins', seed <- seed' }
+               { world | goblins <- goblins', seed <- seed', humans <- humans' }
 
 
         Keys k -> 
@@ -236,10 +269,22 @@ update event world =
 view : World -> Element
 view world = 
     let 
-        shapes = List.map (\s -> s.shape
+        shapes = List.map (\s -> (s.shape s.state)
                         |> rotate (degrees s.rot)
                         |> moveX s.pos.x
-                        |> moveY s.pos.y) (world.goblins ++ world.humans)
+                        |> moveY s.pos.y) world.goblins
+        humans = List.map (\h -> 
+            case h.state of
+                Normal ->
+                    (h.shape h.state)
+                            |> rotate (degrees h.rot)
+                            |> moveX h.pos.x
+                            |> moveY h.pos.y
+                Attacking ->
+                    (h.shape h.state)
+                            |> rotate (degrees h.rot)
+                            |> moveX h.pos.x
+                            |> moveY h.pos.y) world.humans
         targets = List.map (
             \{target,pos} ->
                 case target of
@@ -258,15 +303,15 @@ view world =
                     Nothing ->
                         traced (dashed red) (path [(pos.x,pos.y),(pos.x,pos.y)])
             ) world.goblins
-        player = world.player.shape 
+        player = (world.player.shape world.player.state)
             |> moveX world.player.pos.x 
             |> moveY world.player.pos.y
-        debug = False
+        debug = True
     in
        if debug
           then collage screenWidth screenHeight 
-                        ([ backgroundImg ] ++ shapes ++ [player] ++ targets ++ follows) 
-          else collage screenWidth screenHeight ([backgroundImg] ++ shapes ++ [player])
+                        ([ backgroundImg ] ++ shapes ++ [player] ++ humans ++ targets ++ follows) 
+          else collage screenWidth screenHeight ([backgroundImg] ++ humans ++ shapes ++ [player])
 
 
 
@@ -280,8 +325,8 @@ keyinput =
 ticks = NewFrame <~ (fps 60)
 streams = merge ticks keyinput
 
-startingGoblins = List.map (\x -> goblin (Random.initialSeed x)) [1..200]
-startingHumans = List.map (\x -> human (Random.initialSeed x)) [200..250]
+startingGoblins = List.map (\x -> goblin (Random.initialSeed x)) [1..100]
+startingHumans = List.map (\x -> human (Random.initialSeed x)) [200..225]
 startWorld = { goblins = startingGoblins, player = startingPlayer, humans = startingHumans, seed = Random.initialSeed 200 } 
 
 main = view <~ foldp update startWorld streams
