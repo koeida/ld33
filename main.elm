@@ -17,13 +17,19 @@ screenHeight = 768
 
 type Action = Spin | Tick Time
 
-type Sprite = Sprite 
+type alias Position = {x: Float, y: Float}
+
+type alias Sprite = 
     { shape : Form
     , rot : Float
     , animations : List (Maybe AnimationState)
-    , x : Float
-    , y : Float
+    , pos : Position 
+    , brain : Brain
+    , kind : EntityKind
     }
+
+type Brain = Standing | Moving Position
+type EntityKind = Player | Goblin | Warrior 
 
 type AnimationType 
     = Rotation 
@@ -40,23 +46,27 @@ type AnimationState = AnimationState
     , animationType : AnimationType
     }
 
-stepAnimation : Time -> Maybe AnimationState -> Sprite -> Sprite
-stepAnimation t animation (Sprite s) =
+--Apply the current animation state to the sprite
+stepAnimation : Maybe AnimationState -> Sprite -> Sprite
+stepAnimation animation s =
     case animation of
         Nothing ->
-            Sprite s
+            s
         Just (AnimationState anim) ->
-           case anim.animationType of
-                Rotation ->
-                    Sprite { s | rot <- ease anim.easing float anim.startVal anim.endVal anim.len anim.elapsedTime 
-                    }
-                XPos ->
-                    Sprite { s | x <-  ease anim.easing float anim.startVal anim.endVal anim.len anim.elapsedTime
-                    }
-                YPos ->
-                    Sprite { s | y <-  ease anim.easing float anim.startVal anim.endVal anim.len anim.elapsedTime
-                    }
-                _ -> Sprite s
+           let 
+               pos = s.pos
+           in
+               case anim.animationType of
+                    Rotation ->
+                        { s | rot <- ease anim.easing float anim.startVal anim.endVal anim.len anim.elapsedTime 
+                        }
+                    XPos ->
+                        { s | pos <- {pos | x <-  ease anim.easing float anim.startVal anim.endVal anim.len anim.elapsedTime}
+                        }
+                    YPos ->
+                        { s | pos <- {pos | y <-  ease anim.easing float anim.startVal anim.endVal anim.len anim.elapsedTime}
+                        }
+                    _ -> s
 
 animLength = 1500
 animAmount = 90
@@ -64,39 +74,31 @@ animAmount = 90
 goblinImg = toForm (image 16 16 "assets/goblin_run_down.gif")
 backgroundImg = toForm (tiledImage screenWidth screenHeight "assets/sand_1.png")
 
-button = Sprite
+goblins = List.map (\x -> goblin (Random.initialSeed x)) [0..200]
+
+goblin seed = 
+    let 
+        (xpos,seed') = Random.generate (Random.float -50.0 150.0) seed
+        (ypos,seed'') = Random.generate (Random.float -50.0 150.0) seed'
+    in 
          { shape = goblinImg
          , rot = 0
-         , x = -250
-         , y = 150
+         , brain = Standing
+         , kind = Goblin
+         , pos = {x = -50 + (xpos * 16),y = ypos}
          , animations = [Just (AnimationState 
                                  { elapsedTime = 0
-                                 , delay = 250
-                                 , startVal = 0
-                                 , easing = easeOutCirc
-                                 , len = 750
-                                 , animationType = Rotation
-                                 , endVal = 360
-                                 }),
-                         Just (AnimationState
-                                 { elapsedTime = 0
-                                 , startVal = -250
                                  , delay = 0
-                                 , easing = easeOutCirc
-                                 , len = 2000
-                                 , animationType = XPos
-                                 , endVal = 350}),
-                         Just (AnimationState
-                                 { elapsedTime = 0
-                                 , len = 2000
-                                 , delay = 0
-                                 , easing = easeOutCirc
-                                 , startVal = 150
+                                 , startVal = ypos
+                                 , easing = Easing.linear --easeOutLinear
+                                 , len = 10000
                                  , animationType = YPos
-                                 , endVal = -150})
+                                 , endVal = ypos - 200
+                                 })
                         ]
          }
 
+-- Apply time t to animationstate
 tickAnim : Time -> Maybe AnimationState -> Maybe AnimationState
 tickAnim t a =
     case a of
@@ -111,42 +113,20 @@ tickAnim t a =
 
         Nothing -> Nothing
 
-update : Action -> Sprite -> Sprite
-update action (Sprite sprite) =
+tickSprite : Time -> Sprite -> Sprite
+tickSprite t s = 
+    let
+        animations' = List.map (tickAnim t) s.animations
+        s' = List.foldr stepAnimation s animations'
+    in
+       { s' | animations <- animations' }
+
+
+update : Action -> (List Sprite) -> (List Sprite)
+update action ss =
     case action of
-        Tick t ->
-            let
-                anims = List.map (tickAnim t) sprite.animations
-                (Sprite newSprite) = List.foldr (stepAnimation t) (Sprite sprite) sprite.animations 
-            in
-                Sprite {newSprite | animations <- anims}
-        Spin -> 
-            if not (allNothing sprite.animations) then (Sprite sprite) else Sprite { sprite | animations <- [Just (AnimationState 
-                                 { elapsedTime = 0
-                                 , startVal = sprite.rot
-                                 , delay = 100
-                                 , easing = easeOutCubic
-                                 , len = 1500
-                                 , animationType = Rotation
-                                 , endVal = -sprite.rot
-                                 }),
-                         Just (AnimationState
-                                 { elapsedTime = 0
-                                 , startVal = sprite.x
-                                 , delay = 0
-                                 , easing = easeOutCubic
-                                 , len = 2000
-                                 , animationType = XPos
-                                 , endVal = -sprite.x}),
-                         Just (AnimationState
-                                 { elapsedTime = 0
-                                 , len = 2000
-                                 , delay = 0
-                                 , startVal = sprite.y
-                                 , easing = easeOutBounce
-                                 , animationType = YPos
-                                 , endVal = -sprite.y})
-                        ]}
+        Tick t -> List.map (tickSprite t) ss
+        Spin -> ss 
 
 allNothing : List (Maybe a) -> Bool
 allNothing l =
@@ -157,17 +137,19 @@ allNothing l =
     in
         (List.length flist) == 0
 
-view : Sprite -> Element
-view (Sprite s) = collage screenWidth screenHeight 
-                    [ backgroundImg
-                    , s.shape 
+view : List Sprite -> Element
+view ss = 
+    let 
+        shapes = List.map (\s -> s.shape
                         |> rotate (degrees s.rot)
-                        |> moveX s.x
-                        |> moveY s.y
-                    ]   
+                        |> moveX s.pos.x
+                        |> moveY s.pos.y) ss
+    in
+        collage screenWidth screenHeight 
+                        ([ backgroundImg ] ++ shapes) 
 
 ticks = map Tick (fps 60)
 keys = map (\_ -> Spin) Keyboard.space
 streams = merge ticks keys
 
-main = view <~ foldp update button streams
+main = view <~ foldp update goblins streams
