@@ -12,7 +12,10 @@ type alias World =
     , goblins : List Sprite
     , goblinSpawns : List Sprite
     , humans : List Sprite
+    , archers : List Sprite
+    , arrows : List Sprite
     , seed : Random.Seed
+    , huts : List Sprite
     }
 
 type alias KeyInput = 
@@ -32,6 +35,7 @@ type alias Sprite =
     , target : Maybe Position
     , following : Maybe Position
     , nextFollow : Time
+    , radius : Float
     , attackSpeed : Time
     , scale : Float
     , nextAttack : Time
@@ -41,7 +45,7 @@ type alias Sprite =
     , kind : EntityKind
     }
 
-type EntityKind = Player | Goblin | AlphaGoblin | Warrior | Building 
+type EntityKind = Player | Goblin | AlphaGoblin | Warrior | Building | Archer | Arrow | HumanHut
 
 type State = Normal | Attacking | Fleeing | Dead
 

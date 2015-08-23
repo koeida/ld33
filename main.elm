@@ -29,7 +29,13 @@ goblinImg s =
 
 goblinSpawnImg s = toForm (image 32 32 "assets/gobspawn.gif") 
 
+hutImg s = 
+    case s of
+        Dead -> toForm (image 32 32 "assets/human_house_dead.gif")
+        _ -> toForm (image 32 32 "assets/human_house.gif")
+
 archerImg s = toForm (image 32 32 "assets/archer_shoot.gif")
+arrowImg s = toForm (image 32 32 "assets/arrow.gif")
 
 playerImg s = toForm (image 32 32 "assets/player_run.gif")
 humanImg s = 
@@ -48,6 +54,7 @@ startingPlayer =
     , target = Nothing
     , following = Nothing
     , nextFollow = 0
+    , radius = 16
     , nextAttack = 1000
     , scale = 1
     , attackSpeed = 0
@@ -58,6 +65,75 @@ startingPlayer =
     , animations = []
     }
 
+makeHut x y = 
+    { shape = hutImg
+    , rot = 0
+    , kind = HumanHut
+    , target = Nothing
+    , following = Nothing
+    , nextFollow = 0
+    , radius = 16
+    , nextAttack = 1000
+    , scale = 1
+    , attackSpeed = 0
+    , stress = 0
+    , state = Normal
+    , moving = False
+    , pos = {x = x, y = y}
+    , animations = []
+    }
+
+makeArrow t x y tx ty = 
+    { shape = arrowImg
+    , rot = 0
+    , kind = Arrow
+    , target = Nothing
+    , following = Nothing
+    , nextFollow = 0
+    , nextAttack = 1000
+    , scale = 1
+    , radius = 16
+    , attackSpeed = 1000
+    , stress = 0
+    , state = Normal
+    , moving = True
+    , pos = {x = x, y = y}
+    , animations = 
+             [ Just (AnimationState 
+                 { elapsedTime = 0
+                 , delay = 0
+                 , startVal = x
+                 , easing = Easing.linear --easeOutLinear
+                 , len = t  
+                 , animationType = XPos
+                 , endVal = tx})
+             , Just (AnimationState 
+                 { elapsedTime = 0
+                 , delay = 0
+                 , startVal = y
+                 , easing = Easing.linear   --easeOutLinear
+                 , len = t / 2   
+                 , animationType = YPos
+                 , endVal = ty + 200})
+             , Just (AnimationState 
+                 { elapsedTime = 0
+                 , delay = t / 2
+                 , startVal = ty + 200
+                 , easing = Easing.linear   --easeOutLinear
+                 , len = t / 2   
+                 , animationType = YPos
+                 , endVal = ty })
+             , Just (AnimationState 
+                 { elapsedTime = 0
+                 , delay = 0
+                 , startVal = -45
+                 , easing = easeOutCirc --easeOutLinear
+                 , len = t  
+                 , animationType = Rotation
+                 , endVal = 45 })
+             ]
+    }
+
 makeSpawnPoint x y =
     { shape = goblinSpawnImg
     , rot = 0
@@ -66,6 +142,7 @@ makeSpawnPoint x y =
     , following = Nothing
     , nextFollow = 0
     , nextAttack = 1000
+    , radius = 16
     , scale = 1
     , attackSpeed = 0
     , stress = 0
@@ -87,12 +164,38 @@ human seed =
        , rot = 0
        , kind = Warrior
        , moving = True
+       , radius = 16
        , stress = 0
        , state = Normal
        , following = Nothing
        , scale = 1
        , attackSpeed = 250
        , nextAttack = 250
+       , nextFollow = 0
+       , target = Nothing
+       , pos = {y = ypos , x = xpos }
+       , animations = []
+       }
+
+archer seed =
+    let
+        (xpos,seed') = Random.generate (Random.float 400 500.0) seed
+        (ypos,seed'') = Random.generate (Random.float -330.0 330.0) seed'
+        (hasTarget, seed''') = Random.generate (Random.float 0 100) seed''
+        (targx,seed'''') = Random.generate (Random.float -500 500) seed'''
+        (targy,seed''''') = Random.generate (Random.float -300 300) seed'''
+    in
+       { shape = archerImg
+       , rot = 0
+       , kind = Archer
+       , moving = True
+       , stress = 0
+       , radius = 16
+       , state = Attacking
+       , following = Nothing
+       , scale = 1
+       , attackSpeed = 1000
+       , nextAttack = 1000
        , nextFollow = 0
        , target = Nothing
        , pos = {y = ypos , x = xpos }
@@ -115,6 +218,7 @@ goblinSpawner seed x y =
          , state = Normal
          , following = Nothing
          , scale = 1
+         , radius = 16
          , nextAttack = 250
          , attackSpeed = 250
          , nextFollow = 250
@@ -134,7 +238,7 @@ goblinSpawner seed x y =
 
 goblin seed = 
     let 
-        (xpos,seed') = Random.generate (Random.float -400.0 0.0) seed
+        (xpos,seed') = Random.generate (Random.float -200.0 -300.0) seed
         (ypos,seed'') = Random.generate (Random.float -400.0 400.0) seed'
         (hasTarget, seed''') = Random.generate (Random.float 0 100) seed''
         (targx,seed'''') = Random.generate (Random.float 400 500) seed'''
@@ -146,6 +250,7 @@ goblin seed =
          , moving = True
          , stress = 0
          , scale = 1
+         , radius = 8
          , state = Normal
          , following = Nothing
          , nextAttack = 250
@@ -283,7 +388,6 @@ getMods x1 y1 x2 y2 minDist =
 getNearestTo : Float -> Float -> List Sprite -> Sprite -> Maybe {d:Float,s:Sprite}
 getNearestTo minDistance maxDistance sprites s =
     sprites 
-        |> List.filter .moving  
         |> List.filter (\t -> t.state /= Dead)
         |> List.map (\t -> {d = distance s t, s = t})
         |> List.filter (\t -> t.d > 0 && t.d > minDistance && t.d < maxDistance)
@@ -322,13 +426,17 @@ getNewFollow seed t gs g =
                        in
                           {g | pos <- pos', following <- Just {x = s.pos.x, y = s.pos.y}, nextFollow <- next}
                   
-        
-
-
 distance s1 s2 = 
     let
         a = abs ((s2.pos.x) - (s1.pos.x)) 
         b = abs ((s2.pos.y) - (s1.pos.y))
+    in
+       abs (sqrt ((a ^ 2) + (b ^ 2)))
+
+distancer s1 s2 = 
+    let
+        a = abs ((s2.pos.x + s2.radius) - (s1.pos.x + s1.radius)) 
+        b = abs ((s2.pos.y + s2.radius) - (s1.pos.y + s1.radius))
     in
        abs (sqrt ((a ^ 2) + (b ^ 2)))
 
@@ -364,6 +472,25 @@ getNewTarget min max ss s =
        case newTarget of
            Nothing -> Nothing
            Just {d,s} -> Just {x = s.pos.x, y = s.pos.y} 
+
+updateArcher : Time -> World -> Sprite -> Sprite
+updateArcher t world archer = 
+    case archer.state of
+        Normal ->
+            archer
+        Attacking ->
+            let
+                nextAttack' = archer.nextAttack - (0.1 * t)
+                attackNow = nextAttack' <= 0
+            in
+               {archer | nextAttack <- if attackNow 
+                                         then archer.attackSpeed
+                                         else nextAttack'}
+        Dead -> 
+            archer
+        Fleeing ->
+            archer
+
 
 updateHuman : Time -> World -> Sprite -> Sprite
 updateHuman t world human =
@@ -404,13 +531,28 @@ nearby maxDistance s ss =
     List.any (\e -> (distance s e) < maxDistance &&
                     e.state /= Dead) ss
 
+updateGobspawn : Time -> World -> Sprite -> Sprite
+updateGobspawn t world s =
+    case s.state of
+        Dead -> s
+        _ ->
+            let
+                player = world.player
+                pos = s.pos
+                pos' = if pos.x > player.pos.x
+                          then {pos | x <- pos.x + (0.005 * t)}
+                          else pos
+            in
+                {s | pos <- pos'}
+
 updateGoblin : Time -> World -> Sprite -> Sprite
 updateGoblin t world g =
     case g.state of
         Normal ->
             let 
+                enemies = (world.humans ++ world.huts)
                 (rfloat, seed') = Random.generate (Random.float 0 10) world.seed
-                nearbyHumans = nearby 32 g world.humans
+                nearbyHumans = nearby 32 g enemies 
                 state' = if nearbyHumans then Attacking else g.state
                 g' = g |> ((tickSprite t) << 
                            (herding world.player) <<
@@ -419,7 +561,8 @@ updateGoblin t world g =
                {g' | state <- state'}
         Attacking ->
             let
-                nearbyHumans = nearby 32 g world.humans 
+                enemies = (world.humans ++ world.huts)
+                nearbyHumans = nearby 32 g enemies
                 state' = if nearbyHumans then Attacking else Normal
                 nextAttack' = g.nextAttack - (0.1 * t)
                 attackNow = nextAttack' <= 0
@@ -465,19 +608,46 @@ attack t enemies attacker =
            case nearestEnemy of
                Nothing -> []
                Just {d,s} -> if successfulHit
-                    then List.filter (\e -> e.pos.x == s.pos.x && e.pos.y == s.pos.y) enemies
+                    then
+                        List.filter (\e -> e.pos.x == s.pos.x && e.pos.y == s.pos.y) enemies
                     else []
 
+fireArrow : World -> Sprite -> List Sprite
+fireArrow world archer =
+    if archer.nextAttack /= archer.attackSpeed
+       then []
+       else
+            let
+                enemies = List.filter (\e -> e.state /= Dead) (world.goblins ++ [world.player])
+                target = getNearestTo 0 1000 enemies archer
+                arrow = case target of 
+                    Nothing -> [] 
+                    Just {d,s} -> 
+                        let 
+                            (id,seed) = Random.generate (Random.int 0 ((List.length enemies) - 1)) (Random.initialSeed (round (s.pos.x + s.pos.y + d))) 
+                            trg = nth id enemies 
+                        in 
+                            [makeArrow (d * 8) archer.pos.x archer.pos.y trg.pos.x trg.pos.y]  
+            in
+                arrow
 
 kill deadList sprites entityKind =
     let 
         deathAnim = case entityKind of 
             Goblin -> animDie 50 50 1000  
+            HumanHut -> (\_ -> [])
             _ -> animDie 50 -50 1000 
     in 
         mapWhen (\s -> List.any (\dead -> (dead.pos.x == s.pos.x) && (dead.pos.y == s.pos.y)) deadList )
                 (\s -> {s | state <- Dead, animations <- s.animations ++ (deathAnim s) })
                 sprites
+
+--arrowCollide : List Sprite -> List Sprite -> (List Sprite,List Sprite)
+--arrowCollide targets arrows =
+--    let 
+--        hits = List.concat (\a -> List.filter (\t -> (distancer t a) < t.radius + a.radius) targets) arrows  
+--
+
 
 update : Event -> World -> World
 update event world =
@@ -485,25 +655,46 @@ update event world =
         NewFrame t -> 
             let 
                 (rfloat, seed') = Random.generate (Random.float 0 10) world.seed
+
                 goblins' = world.goblins
                     |> List.map (updateGoblin t world << updateAnims t)
+
                 humans' = world.humans
                     |> List.map (updateHuman t world << updateAnims t)
-                deadGoblins = List.map (attack t goblins') humans' |> List.concat
-                deadHumans = List.map (attack t humans') goblins' |> List.concat
+
+                archers' = world.archers
+                    |> List.map (updateArcher t world << updateAnims t)
+
+                arrows' = List.map (updateAnims t ) world.arrows
+
+                gobspawns' = world.goblinSpawns
+                    |> List.map (updateGobspawn t world << updateAnims t)
+
+                huts' = world.huts 
+                    |> List.map (updateAnims t)
+
+                deadGoblins = List.concatMap (attack t goblins') humans'
+                deadHumans = List.concatMap (attack t humans') goblins'
                 deadPlayer = List.concatMap (attack t [world.player]) humans'
-                deadSpawns = List.concatMap (attack t world.goblinSpawns) humans'
+                deadSpawns = List.concatMap (attack t gobspawns') humans'
+                deadHuts = List.concatMap (attack t huts') goblins'
+
+                arrows'' = List.concatMap (fireArrow world) archers' 
+
                 humans'' = kill deadHumans humans' Warrior
                 goblins'' = kill deadGoblins goblins' Goblin
-                spawns' = kill deadSpawns world.goblinSpawns Building
+                spawns' = kill deadSpawns gobspawns' Building
+                huts'' = kill deadHuts huts' HumanHut
+
                 spawns'' = List.map (updateAnims t) spawns'
                 player = world.player |> updateAnims t
+
                 player' = if (List.length deadPlayer) > 0
                              then {player | state <- Dead,
                                             animations <- player.animations ++ (animDie 50 50 1000 player)}
                              else player
             in
-               { world | goblinSpawns <- spawns'', player <- player', goblins <- goblins'', seed <- seed', humans <- humans'' }
+               { world | huts <- huts'', goblinSpawns <- spawns'', player <- player', goblins <- goblins'', seed <- seed', humans <- humans'', arrows <- arrows' ++ arrows'', archers <- archers'  }
         Keys k -> 
             let
                 velocity = 5
@@ -537,9 +728,9 @@ view world =
     let 
         shapes = List.map (\s -> (s.shape s.state)
                         |> rotate (degrees s.rot)
-                        |> scale s.scale
+                        |> scale (s.scale)
                         |> moveX s.pos.x
-                        |> moveY s.pos.y) (world.goblinSpawns ++ world.goblins ++ world.humans)
+                        |> moveY s.pos.y) (world.goblinSpawns ++ world.huts ++ world.goblins ++ world.humans ++ world.archers ++ world.arrows)
 
         targets = List.map (
             \{target,pos} ->
@@ -563,7 +754,7 @@ view world =
             |> rotate (degrees world.player.rot)
             |> moveX world.player.pos.x 
             |> moveY world.player.pos.y
-        debug = True
+        debug = False
         debugStuff = if debug then targets ++ follows else []
     in
           collage screenWidth screenHeight ([backgroundImg] ++ debugStuff ++ shapes ++ [player])
@@ -585,6 +776,14 @@ streams = mergeMany [ticks, keyinput, spawnGoblin]
 
 startingGoblins = List.map (\x -> goblin (Random.initialSeed x)) [1..25]
 startingHumans = List.map (\x -> human (Random.initialSeed x)) [200..225]
-startWorld = { goblinSpawns = [makeSpawnPoint -200 0,makeSpawnPoint -200 200, makeSpawnPoint -200 -200], goblins = startingGoblins, player = startingPlayer, humans = startingHumans, seed = Random.initialSeed 200 } 
+startingArchers = [] --List.map (\x -> archer (Random.initialSeed x)) [300..315]
+startWorld = { huts = [makeHut 350 0, makeHut 350 200, makeHut 350 -200]
+             , arrows = []
+             , goblinSpawns = [makeSpawnPoint -200 0,makeSpawnPoint -200 200, makeSpawnPoint -200 -200]
+             , goblins = startingGoblins
+             , player = startingPlayer
+             , humans = startingHumans
+             , seed = Random.initialSeed 200
+             , archers = startingArchers } 
 
 main = view <~ foldp update startWorld streams
