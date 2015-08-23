@@ -29,6 +29,8 @@ goblinImg s =
 
 goblinSpawnImg s = toForm (image 32 32 "assets/gobspawn.gif") 
 
+archerImg s = toForm (image 32 32 "assets/archer_shoot.gif")
+
 playerImg s = toForm (image 32 32 "assets/player_run.gif")
 humanImg s = 
     case s of
@@ -52,11 +54,11 @@ startingPlayer =
     , stress = 0
     , state = Normal
     , moving = True
-    , pos = {x = 200, y = 100}
+    , pos = {x = 10, y = 100}
     , animations = []
     }
 
-goblinSpawnPoint = 
+makeSpawnPoint x y =
     { shape = goblinSpawnImg
     , rot = 0
     , kind = Building
@@ -69,7 +71,7 @@ goblinSpawnPoint =
     , stress = 0
     , state = Normal
     , moving = True
-    , pos = {x = -150, y = 0}
+    , pos = {x = x, y = y}
     , animations = []
     }
 
@@ -132,7 +134,7 @@ goblinSpawner seed x y =
 
 goblin seed = 
     let 
-        (xpos,seed') = Random.generate (Random.float 0.0 100.0) seed
+        (xpos,seed') = Random.generate (Random.float -400.0 0.0) seed
         (ypos,seed'') = Random.generate (Random.float -400.0 400.0) seed'
         (hasTarget, seed''') = Random.generate (Random.float 0 100) seed''
         (targx,seed'''') = Random.generate (Random.float 400 500) seed'''
@@ -347,8 +349,8 @@ herding player goblin =
         xmod = getMotionMod player.pos.x goblin.pos.x
         ymod = getMotionMod player.pos.y goblin.pos.y
         pos = goblin.pos
-        pos' = { pos | x <- pos.x + (xmod * 2),
-                       y <- pos.y + (ymod * 2)}
+        pos' = { pos | x <- pos.x + (xmod * 3),
+                       y <- pos.y + (ymod * 3)}
     in
        if d < minDistance 
           then { goblin | pos <- pos'}
@@ -370,10 +372,10 @@ updateHuman t world human =
             let 
                 pos = human.pos 
                 pos' = if human.target == Nothing then
-                          {pos | x <- pos.x - (0.1 * t)}
+                          {pos | x <- pos.x - (0.02 * t)}
                        else pos
                 nearbyGobs = nearby 32 human (world.goblins ++ world.goblinSpawns ++ [world.player]) 
-                target' = getNewTarget 0 100 world.goblinSpawns human 
+                target' = getNewTarget 0 400 world.goblinSpawns human 
                 state' = if nearbyGobs then Attacking else Normal
                 human' = {human | target <- target', pos <- pos', state <- state'}
             in
@@ -408,7 +410,7 @@ updateGoblin t world g =
         Normal ->
             let 
                 (rfloat, seed') = Random.generate (Random.float 0 10) world.seed
-                nearbyHumans = nearby 16 g world.humans
+                nearbyHumans = nearby 32 g world.humans
                 state' = if nearbyHumans then Attacking else g.state
                 g' = g |> ((tickSprite t) << 
                            (herding world.player) <<
@@ -417,7 +419,7 @@ updateGoblin t world g =
                {g' | state <- state'}
         Attacking ->
             let
-                nearbyHumans = nearby 16 g world.humans 
+                nearbyHumans = nearby 32 g world.humans 
                 state' = if nearbyHumans then Attacking else Normal
                 nextAttack' = g.nextAttack - (0.1 * t)
                 attackNow = nextAttack' <= 0
@@ -451,9 +453,9 @@ attack t enemies attacker =
             attackNow = attacker.nextAttack == attacker.attackSpeed
             (hitGen,seed'') = Random.generate (Random.float 0 100) (Random.initialSeed (round (attacker.pos.x + attacker.pos.y + t)))
             chanceToHit = if
-                | attacker.kind == Goblin -> 5
+                | attacker.kind == Goblin -> 20
                 | attacker.kind == Warrior -> 50
-                | attacker.kind == AlphaGoblin -> 5
+                | attacker.kind == AlphaGoblin -> 25
             successfulHit = hitGen < chanceToHit
             livingEnemies = List.filter (\x -> case x.state of 
                                                     Dead -> False
@@ -489,10 +491,19 @@ update event world =
                     |> List.map (updateHuman t world << updateAnims t)
                 deadGoblins = List.map (attack t goblins') humans' |> List.concat
                 deadHumans = List.map (attack t humans') goblins' |> List.concat
+                deadPlayer = List.concatMap (attack t [world.player]) humans'
+                deadSpawns = List.concatMap (attack t world.goblinSpawns) humans'
                 humans'' = kill deadHumans humans' Warrior
                 goblins'' = kill deadGoblins goblins' Goblin
+                spawns' = kill deadSpawns world.goblinSpawns Building
+                spawns'' = List.map (updateAnims t) spawns'
+                player = world.player |> updateAnims t
+                player' = if (List.length deadPlayer) > 0
+                             then {player | state <- Dead,
+                                            animations <- player.animations ++ (animDie 50 50 1000 player)}
+                             else player
             in
-               { world | goblins <- goblins'', seed <- seed', humans <- humans'' }
+               { world | goblinSpawns <- spawns'', player <- player', goblins <- goblins'', seed <- seed', humans <- humans'' }
         Keys k -> 
             let
                 velocity = 5
@@ -503,12 +514,23 @@ update event world =
                             y <- pos.y + (toFloat (k.y * velocity))}  
                 p' = {p | pos <- pos'}
             in
-               {world | player <- p'}
+               if world.player.state == Dead then world else {world | player <- p'}
         SpawnGoblin ->
-            let
-                (newGoblin,seed') = goblinSpawner world.seed -200 0
-            in
-                { world | goblins <- world.goblins ++ [newGoblin], seed <- seed' }
+            if not (List.any (\s -> s.state /= Dead) world.goblinSpawns)
+               then world
+               else
+                    let
+                        spawners = List.filter (\s -> s.state /= Dead) world.goblinSpawns
+                    
+                        (spawnerId,seed') = Random.generate (Random.int 0 ((List.length spawners) - 1)) world.seed
+                        spawner = nth spawnerId spawners
+                        (newGoblin,seed'') = goblinSpawner world.seed spawner.pos.x spawner.pos.y
+                    in
+                        { world | goblins <- world.goblins ++ [newGoblin], seed <- seed'' }
+
+nth n l = case l of
+    x::xs -> if n == 0 then x else nth (n - 1) xs 
+
 
 view : World -> Element
 view world = 
@@ -538,6 +560,7 @@ view world =
                         traced (dashed red) (path [(pos.x,pos.y),(pos.x,pos.y)])
             ) world.goblins
         player = (world.player.shape world.player.state)
+            |> rotate (degrees world.player.rot)
             |> moveX world.player.pos.x 
             |> moveY world.player.pos.y
         debug = True
@@ -555,13 +578,13 @@ keyinput =
         sampleOn (every <| 10 * millisecond) keySignal
 
 spawnGoblin : Signal Event
-spawnGoblin = map (\_ -> SpawnGoblin) (every <| 5 * second)
+spawnGoblin = map (\_ -> SpawnGoblin) (every <| 2 * second)
 
 ticks = NewFrame <~ (fps 60)
 streams = mergeMany [ticks, keyinput, spawnGoblin]
 
 startingGoblins = List.map (\x -> goblin (Random.initialSeed x)) [1..25]
 startingHumans = List.map (\x -> human (Random.initialSeed x)) [200..225]
-startWorld = { goblinSpawns = [goblinSpawnPoint], goblins = startingGoblins, player = startingPlayer, humans = startingHumans, seed = Random.initialSeed 200 } 
+startWorld = { goblinSpawns = [makeSpawnPoint -200 0,makeSpawnPoint -200 200, makeSpawnPoint -200 -200], goblins = startingGoblins, player = startingPlayer, humans = startingHumans, seed = Random.initialSeed 200 } 
 
 main = view <~ foldp update startWorld streams
