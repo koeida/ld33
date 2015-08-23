@@ -20,13 +20,23 @@ screenHeight = 768
 animLength = 1500
 animAmount = 90
 
-goblinImg s = toForm (image 16 16 "assets/goblin_run_down.gif")
+goblinImg s = 
+    case s of --
+        Normal -> toForm (image 16 16 "assets/goblin_run_down.gif")
+        Attacking -> toForm (image 16 16 "assets/goblin_run_down.gif")
+        Fleeing -> toForm (image 16 16 "assets/goblin_run_down.gif")
+        Dead -> toForm (image 16 16 "assets/goblin_dead.gif")
+
+goblinSpawnImg s = toForm (image 32 32 "assets/gobspawn.gif") 
+
 playerImg s = toForm (image 32 32 "assets/player_run.gif")
 humanImg s = 
     case s of
         Normal -> toForm (image 32 32 "assets/human_walking.gif")
         Attacking -> toForm (image 64 32 "assets/human_attacking.gif") 
         Fleeing -> toForm (image 32 32 "assets/human_walking.gif")
+        Dead -> toForm (image 32 32 "assets/human_dead.gif")
+
 backgroundImg = toForm (tiledImage screenWidth screenHeight "assets/sand_1.png")
 
 startingPlayer = 
@@ -36,12 +46,30 @@ startingPlayer =
     , target = Nothing
     , following = Nothing
     , nextFollow = 0
-    , nextAttack = 0
+    , nextAttack = 1000
+    , scale = 1
     , attackSpeed = 0
     , stress = 0
     , state = Normal
     , moving = True
     , pos = {x = 200, y = 100}
+    , animations = []
+    }
+
+goblinSpawnPoint = 
+    { shape = goblinSpawnImg
+    , rot = 0
+    , kind = Building
+    , target = Nothing
+    , following = Nothing
+    , nextFollow = 0
+    , nextAttack = 1000
+    , scale = 1
+    , attackSpeed = 0
+    , stress = 0
+    , state = Normal
+    , moving = True
+    , pos = {x = -150, y = 0}
     , animations = []
     }
 
@@ -60,18 +88,51 @@ human seed =
        , stress = 0
        , state = Normal
        , following = Nothing
-       , attackSpeed = 1000
-       , nextAttack = 0
+       , scale = 1
+       , attackSpeed = 250
+       , nextAttack = 250
        , nextFollow = 0
        , target = Nothing
        , pos = {y = ypos , x = xpos }
        , animations = []
        }
 
+goblinSpawner seed x y = 
+    let 
+        (xpos,seed') = Random.generate (Random.float -20.0 20.0) seed
+        (ypos,seed'') = Random.generate (Random.float -20.0 20.0) seed'
+        (hasTarget, seed''') = Random.generate (Random.float 0 100) seed''
+        (targx,seed'''') = Random.generate (Random.float 400 500) seed'''
+        (targy,seed''''') = Random.generate (Random.float -300 300) seed'''
+    in 
+         ({ shape = goblinImg
+         , rot = 0
+         , kind = if hasTarget > 90 then AlphaGoblin else Goblin
+         , moving = True
+         , stress = 0
+         , state = Normal
+         , following = Nothing
+         , scale = 1
+         , nextAttack = 250
+         , attackSpeed = 250
+         , nextFollow = 250
+         , target = if hasTarget > 90 then Just {x = targx, y = targy} else Nothing
+         , pos = {x = x + xpos,y = y + ypos}
+         , animations = [
+             Just (AnimationState 
+                 { elapsedTime = 0
+                 , delay = 0
+                 , startVal = 4
+                 , easing = easeOutBounce --easeOutLinear
+                 , len = 1500 
+                 , animationType = Scale
+                 , endVal = 1
+                 })]
+         },seed''''')
 
 goblin seed = 
     let 
-        (xpos,seed') = Random.generate (Random.float 100.0 200.0) seed
+        (xpos,seed') = Random.generate (Random.float 0.0 100.0) seed
         (ypos,seed'') = Random.generate (Random.float -400.0 400.0) seed'
         (hasTarget, seed''') = Random.generate (Random.float 0 100) seed''
         (targx,seed'''') = Random.generate (Random.float 400 500) seed'''
@@ -82,22 +143,52 @@ goblin seed =
          , kind = if hasTarget > 90 then AlphaGoblin else Goblin
          , moving = True
          , stress = 0
+         , scale = 1
          , state = Normal
          , following = Nothing
-         , nextAttack = 0
-         , attackSpeed = 1000
+         , nextAttack = 250
+         , attackSpeed = 250
          , nextFollow = 250
          , target = if hasTarget > 90 then Just {x = targx, y = targy} else Nothing
          , pos = {x = xpos,y = ypos}
-         , animations = []
+         , animations = [] 
          }
 
+animDie height dist time s =
+    let 
+        rot = if s.kind == Warrior then -90 else 90
+    in
+        [ Just (AnimationState 
+                 { elapsedTime = 0
+                 , delay = 0
+                 , startVal = s.pos.x
+                 , easing = easeOutCirc --easeOutLinear
+                 , len = time 
+                 , animationType = XPos
+                 , endVal = s.pos.x - dist
+                 })
+        , Just (AnimationState 
+                 { elapsedTime = 0
+                 , delay = 0
+                 , startVal = s.pos.y
+                 , easing = easeOutBounce --easeOutLinear
+                 , len = time 
+                 , animationType = YPos
+                 , endVal = s.pos.y + height
+                 })
+        , Just (AnimationState 
+                 { elapsedTime = 0
+                 , delay = 0
+                 , startVal = s.rot
+                 , easing = easeOutCirc
+                 , len = time 
+                 , animationType = Rotation
+                 , endVal = s.rot + rot
+                 })
+        ]
+
 animJumpFlip s height time =
-    if not (allNothing s.animations)
-       then []
-       else
-        [
-        Just (AnimationState 
+        [ Just (AnimationState 
                  { elapsedTime = 0
                  , delay = 0
                  , startVal = s.pos.x
@@ -173,8 +264,7 @@ tickSprite t s =
                 pos' = {pos | x <- pos.x + xmod, y <- pos.y + ymod}
                 --target = if s.pos.x == s.target.x && s.pos.y = s.target.y
             in
-               {s | pos <- pos'
-               }
+               {s | pos <- pos' }
 
 getMods x1 y1 x2 y2 minDist = 
     let
@@ -187,9 +277,20 @@ getMods x1 y1 x2 y2 minDist =
     in
        (xmod,ymod)
 
+
+getNearestTo : Float -> Float -> List Sprite -> Sprite -> Maybe {d:Float,s:Sprite}
+getNearestTo minDistance maxDistance sprites s =
+    sprites 
+        |> List.filter .moving  
+        |> List.filter (\t -> t.state /= Dead)
+        |> List.map (\t -> {d = distance s t, s = t})
+        |> List.filter (\t -> t.d > 0 && t.d > minDistance && t.d < maxDistance)
+        |> List.sortBy .d
+        |> List.head
+
 --Find the closest moving goblin and go toward it 
-getNewTarget : Random.Seed -> Time -> List Sprite -> Sprite -> Sprite
-getNewTarget seed t gs g = 
+getNewFollow : Random.Seed -> Time -> List Sprite -> Sprite -> Sprite
+getNewFollow seed t gs g = 
     if g.nextFollow >= 0 
        then
             let 
@@ -205,25 +306,19 @@ getNewTarget seed t gs g =
         if g.kind == AlphaGoblin then g else
             let
                 minDistance = 100
-                newTarget = gs 
-                            |> List.filter .moving
-                            |> List.map (\s -> {d = distance g s,
-                                                x = s.pos.x,
-                                                y = s.pos.y})
-                            |> List.filter (\s -> s.d > 0 && s.d > minDistance)
-                            |> List.sortBy .d
-                            |> List.head
+                maxDistance = 2000
+                newTarget = getNearestTo minDistance maxDistance gs g
             in
                case newTarget of
                    Nothing -> { g | following <- Nothing, moving <- False }
-                   Just {d,x,y} -> 
+                   Just {d,s} -> 
                        let
-                           (xmod,ymod) = getMods g.pos.x g.pos.y x y 16
+                           (xmod,ymod) = getMods g.pos.x g.pos.y s.pos.x s.pos.y 16
                            pos = g.pos
                            pos' = {pos | x <- pos.x + xmod, y <- pos.y + ymod}
                            (next,seed') = Random.generate (Random.float 2000 4000) (Random.initialSeed (round (t + g.pos.x + g.pos.y))) 
                        in
-                          {g | pos <- pos', following <- Just {x = x, y = y}, nextFollow <- next}
+                          {g | pos <- pos', following <- Just {x = s.pos.x, y = s.pos.y}, nextFollow <- next}
                   
         
 
@@ -259,25 +354,53 @@ herding player goblin =
           then { goblin | pos <- pos'}
           else goblin
 
+getNewTarget : Float -> Float -> List Sprite -> Sprite -> Maybe Model.Position 
+getNewTarget min max ss s = 
+   let 
+       newTarget = getNearestTo min max ss s
+   in
+       case newTarget of
+           Nothing -> Nothing
+           Just {d,s} -> Just {x = s.pos.x, y = s.pos.y} 
+
 updateHuman : Time -> World -> Sprite -> Sprite
 updateHuman t world human =
     case human.state of
         Normal ->
             let 
                 pos = human.pos 
-                pos' = {pos | x <- pos.x - (0.01 * t)}
-                nearbyGobs = List.any (\g -> (distance g human) < 32) world.goblins 
-                state' = if nearbyGobs then Attacking else human.state
+                pos' = if human.target == Nothing then
+                          {pos | x <- pos.x - (0.1 * t)}
+                       else pos
+                nearbyGobs = nearby 32 human (world.goblins ++ world.goblinSpawns ++ [world.player]) 
+                target' = getNewTarget 0 100 world.goblinSpawns human 
+                state' = if nearbyGobs then Attacking else Normal
+                human' = {human | target <- target', pos <- pos', state <- state'}
             in
-                {human | pos <- pos', state <- state'}
+               human' |> tickSprite t
         Attacking ->
-            human
+            let
+                nextAttack' = human.nextAttack - (0.1 * t)
+                attackNow = nextAttack' <= 0
+                nearbyGobs = nearby 32 human (world.goblins ++ world.goblinSpawns ++ [world.player])
+                state' = if nearbyGobs then Attacking else Normal
+            in
+               {human | nextAttack <- if attackNow 
+                                         then human.attackSpeed
+                                         else nextAttack',
+                        state <- state'}        
         Fleeing ->
             let 
                 pos = human.pos 
                 pos' = {pos | x <- pos.x + (0.01 * t)}
             in
                 {human | pos <- pos'}
+        Dead ->
+            human
+
+nearby maxDistance s ss =
+    List.any (\e -> (distance s e) < maxDistance &&
+                    e.state /= Dead) ss
 
 updateGoblin : Time -> World -> Sprite -> Sprite
 updateGoblin t world g =
@@ -285,27 +408,27 @@ updateGoblin t world g =
         Normal ->
             let 
                 (rfloat, seed') = Random.generate (Random.float 0 10) world.seed
-                nearbyHumans = List.any (\h -> (distance g h) < 16) world.humans 
+                nearbyHumans = nearby 16 g world.humans
                 state' = if nearbyHumans then Attacking else g.state
                 g' = g |> ((tickSprite t) << 
                            (herding world.player) <<
-                           (getNewTarget seed' t world.goblins))
+                           (getNewFollow seed' t world.goblins))
             in 
                {g' | state <- state'}
         Attacking ->
             let
-                attackDelay = 500
+                nearbyHumans = nearby 16 g world.humans 
+                state' = if nearbyHumans then Attacking else Normal
                 nextAttack' = g.nextAttack - (0.1 * t)
                 attackNow = nextAttack' <= 0
-                (hitGen,seed'') = Random.generate (Random.float 0 100) (Random.initialSeed (round (g.pos.x + g.pos.y + t)))
-                successfulHit = hitGen > 75
                 g' = {g | stress <- g.stress + (0.1 * t),
                           nextAttack <- if attackNow 
-                                           then attackDelay 
+                                           then g.attackSpeed
                                            else nextAttack',
                           animations <- if attackNow
-                                           then g.animations ++ (animJumpFlip g 16 500) 
-                                           else g.animations
+                                           then g.animations ++ (animJumpFlip g 16 g.attackSpeed) 
+                                           else g.animations,
+                          state <- state'
                      }
             in
                g'
@@ -321,18 +444,55 @@ updateAnims t s =
     in 
        { s' | animations <- animations' } 
 
+attack : Time -> List Sprite -> Sprite -> List Sprite
+attack t enemies attacker =
+    if attacker.nextAttack /= attacker.attackSpeed || attacker.state /= Attacking then [] else
+        let
+            attackNow = attacker.nextAttack == attacker.attackSpeed
+            (hitGen,seed'') = Random.generate (Random.float 0 100) (Random.initialSeed (round (attacker.pos.x + attacker.pos.y + t)))
+            chanceToHit = if
+                | attacker.kind == Goblin -> 5
+                | attacker.kind == Warrior -> 50
+                | attacker.kind == AlphaGoblin -> 5
+            successfulHit = hitGen < chanceToHit
+            livingEnemies = List.filter (\x -> case x.state of 
+                                                    Dead -> False
+                                                    _ -> True) enemies 
+            nearestEnemy = getNearestTo 0 32 livingEnemies attacker 
+        in
+           case nearestEnemy of
+               Nothing -> []
+               Just {d,s} -> if successfulHit
+                    then List.filter (\e -> e.pos.x == s.pos.x && e.pos.y == s.pos.y) enemies
+                    else []
+
+
+kill deadList sprites entityKind =
+    let 
+        deathAnim = case entityKind of 
+            Goblin -> animDie 50 50 1000  
+            _ -> animDie 50 -50 1000 
+    in 
+        mapWhen (\s -> List.any (\dead -> (dead.pos.x == s.pos.x) && (dead.pos.y == s.pos.y)) deadList )
+                (\s -> {s | state <- Dead, animations <- s.animations ++ (deathAnim s) })
+                sprites
+
 update : Event -> World -> World
 update event world =
     case event of
         NewFrame t -> 
             let 
                 (rfloat, seed') = Random.generate (Random.float 0 10) world.seed
-                goblins' = List.map (updateGoblin t world << updateAnims t) world.goblins 
-                humans' = List.map (updateHuman t world << updateAnims t) world.humans
+                goblins' = world.goblins
+                    |> List.map (updateGoblin t world << updateAnims t)
+                humans' = world.humans
+                    |> List.map (updateHuman t world << updateAnims t)
+                deadGoblins = List.map (attack t goblins') humans' |> List.concat
+                deadHumans = List.map (attack t humans') goblins' |> List.concat
+                humans'' = kill deadHumans humans' Warrior
+                goblins'' = kill deadGoblins goblins' Goblin
             in
-               { world | goblins <- goblins', seed <- seed', humans <- humans' }
-
-
+               { world | goblins <- goblins'', seed <- seed', humans <- humans'' }
         Keys k -> 
             let
                 velocity = 5
@@ -344,27 +504,21 @@ update event world =
                 p' = {p | pos <- pos'}
             in
                {world | player <- p'}
-
+        SpawnGoblin ->
+            let
+                (newGoblin,seed') = goblinSpawner world.seed -200 0
+            in
+                { world | goblins <- world.goblins ++ [newGoblin], seed <- seed' }
 
 view : World -> Element
 view world = 
     let 
         shapes = List.map (\s -> (s.shape s.state)
                         |> rotate (degrees s.rot)
+                        |> scale s.scale
                         |> moveX s.pos.x
-                        |> moveY s.pos.y) world.goblins
-        humans = List.map (\h -> 
-            case h.state of
-                Normal ->
-                    (h.shape h.state)
-                            |> rotate (degrees h.rot)
-                            |> moveX h.pos.x
-                            |> moveY h.pos.y
-                Attacking ->
-                    (h.shape h.state)
-                            |> rotate (degrees h.rot)
-                            |> moveX h.pos.x
-                            |> moveY h.pos.y) world.humans
+                        |> moveY s.pos.y) (world.goblinSpawns ++ world.goblins ++ world.humans)
+
         targets = List.map (
             \{target,pos} ->
                 case target of
@@ -386,12 +540,10 @@ view world =
         player = (world.player.shape world.player.state)
             |> moveX world.player.pos.x 
             |> moveY world.player.pos.y
-        debug = False
+        debug = True
+        debugStuff = if debug then targets ++ follows else []
     in
-       if debug
-          then collage screenWidth screenHeight 
-                        ([ backgroundImg ] ++ shapes ++ [player] ++ humans ++ targets ++ follows) 
-          else collage screenWidth screenHeight ([backgroundImg] ++ humans ++ shapes ++ [player])
+          collage screenWidth screenHeight ([backgroundImg] ++ debugStuff ++ shapes ++ [player])
 
 
 
@@ -402,13 +554,14 @@ keyinput =
     in
         sampleOn (every <| 10 * millisecond) keySignal
 
+spawnGoblin : Signal Event
+spawnGoblin = map (\_ -> SpawnGoblin) (every <| 5 * second)
+
 ticks = NewFrame <~ (fps 60)
-streams = merge ticks keyinput
+streams = mergeMany [ticks, keyinput, spawnGoblin]
 
-
-
-startingGoblins = List.map (\x -> goblin (Random.initialSeed x)) [1..50]
+startingGoblins = List.map (\x -> goblin (Random.initialSeed x)) [1..25]
 startingHumans = List.map (\x -> human (Random.initialSeed x)) [200..225]
-startWorld = { goblins = startingGoblins, player = startingPlayer, humans = startingHumans, seed = Random.initialSeed 200 } 
+startWorld = { goblinSpawns = [goblinSpawnPoint], goblins = startingGoblins, player = startingPlayer, humans = startingHumans, seed = Random.initialSeed 200 } 
 
 main = view <~ foldp update startWorld streams

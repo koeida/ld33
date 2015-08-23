@@ -10,6 +10,7 @@ import Debug exposing (..)
 type alias World = 
     { player : Sprite
     , goblins : List Sprite
+    , goblinSpawns : List Sprite
     , humans : List Sprite
     , seed : Random.Seed
     }
@@ -19,7 +20,7 @@ type alias KeyInput =
     , y : Int
     , space: Bool }
 
-type Event = Keys KeyInput | NewEnemy Int | NewFrame Float  
+type Event = Keys KeyInput | SpawnGoblin  | NewFrame Float  
 
 type alias Position = {x: Float, y: Float}
 
@@ -32,6 +33,7 @@ type alias Sprite =
     , following : Maybe Position
     , nextFollow : Time
     , attackSpeed : Time
+    , scale : Float
     , nextAttack : Time
     , moving : Bool
     , stress : Float 
@@ -39,7 +41,7 @@ type alias Sprite =
     , kind : EntityKind
     }
 
-type EntityKind = Player | Goblin | AlphaGoblin | Warrior 
+type EntityKind = Player | Goblin | AlphaGoblin | Warrior | Building 
 
 type State = Normal | Attacking | Fleeing | Dead
 
@@ -47,6 +49,7 @@ type AnimationType
     = Rotation 
     | XPos 
     | YPos
+    | Scale
 
 type AnimationState = AnimationState 
     { elapsedTime : Time
@@ -78,6 +81,7 @@ stepAnimation animation s =
                         { s | pos <- {pos | x <-  ease anim.easing Easing.float anim.startVal anim.endVal anim.len anim.elapsedTime}
                         }
                     YPos ->
-                        { s | pos <- {pos | y <-  ease anim.easing Easing.float anim.startVal anim.endVal anim.len anim.elapsedTime}
-                        }
+                        { s | pos <- {pos | y <-  ease anim.easing Easing.float anim.startVal anim.endVal anim.len anim.elapsedTime}}
+                    Scale ->
+                        { s | scale <- ease anim.easing Easing.float anim.startVal anim.endVal anim.len anim.elapsedTime}
                     _ -> s
