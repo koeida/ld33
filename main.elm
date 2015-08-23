@@ -21,14 +21,13 @@ animLength = 1500
 animAmount = 90
 
 goblinImg s = toForm (image 16 16 "assets/goblin_run_down.gif")
-playerImg s = toForm (image 32 32 "assets/player_stand.png")
+playerImg s = toForm (image 32 32 "assets/player_run.gif")
 humanImg s = 
     case s of
         Normal -> toForm (image 32 32 "assets/human_walking.gif")
         Attacking -> toForm (image 64 32 "assets/human_attacking.gif") 
         Fleeing -> toForm (image 32 32 "assets/human_walking.gif")
 backgroundImg = toForm (tiledImage screenWidth screenHeight "assets/sand_1.png")
-
 
 startingPlayer = 
     { shape = playerImg
@@ -37,10 +36,12 @@ startingPlayer =
     , target = Nothing
     , following = Nothing
     , nextFollow = 0
+    , nextAttack = 0
+    , attackSpeed = 0
     , stress = 0
     , state = Normal
     , moving = True
-    , pos = {x = 100, y = 100}
+    , pos = {x = 200, y = 100}
     , animations = []
     }
 
@@ -59,6 +60,8 @@ human seed =
        , stress = 0
        , state = Normal
        , following = Nothing
+       , attackSpeed = 1000
+       , nextAttack = 0
        , nextFollow = 0
        , target = Nothing
        , pos = {y = ypos , x = xpos }
@@ -68,10 +71,10 @@ human seed =
 
 goblin seed = 
     let 
-        (xpos,seed') = Random.generate (Random.float -350.0 -300.0) seed
+        (xpos,seed') = Random.generate (Random.float 100.0 200.0) seed
         (ypos,seed'') = Random.generate (Random.float -400.0 400.0) seed'
         (hasTarget, seed''') = Random.generate (Random.float 0 100) seed''
-        (targx,seed'''') = Random.generate (Random.float -500 500) seed'''
+        (targx,seed'''') = Random.generate (Random.float 400 500) seed'''
         (targy,seed''''') = Random.generate (Random.float -300 300) seed'''
     in 
          { shape = goblinImg
@@ -81,21 +84,65 @@ goblin seed =
          , stress = 0
          , state = Normal
          , following = Nothing
+         , nextAttack = 0
+         , attackSpeed = 1000
          , nextFollow = 250
          , target = if hasTarget > 90 then Just {x = targx, y = targy} else Nothing
          , pos = {x = xpos,y = ypos}
          , animations = []
-                        --[Just (AnimationState 
-                        --         { elapsedTime = 0
-                        --         , delay = 0
-                        --         , startVal = ypos
-                        --         , easing = Easing.linear --easeOutLinear
-                        --         , len = 10000
-                        --         , animationType = YPos
-                        --         , endVal = ypos - 200
-                        --         })
-                        --]
          }
+
+animJumpFlip s height time =
+    if not (allNothing s.animations)
+       then []
+       else
+        [
+        Just (AnimationState 
+                 { elapsedTime = 0
+                 , delay = 0
+                 , startVal = s.pos.x
+                 , easing = easeOutCirc --easeOutLinear
+                 , len = time / 2
+                 , animationType = XPos
+                 , endVal = s.pos.x + height
+                 }),
+         Just (AnimationState 
+                 { elapsedTime = 0
+                 , delay = time / 2
+                 , startVal = s.pos.x + height
+                 , easing = easeOutCirc --easeOutLinear
+                 , len = time / 2
+                 , animationType = XPos
+                 , endVal = s.pos.x
+                 }),
+        Just (AnimationState 
+                 { elapsedTime = 0
+                 , delay = 0
+                 , startVal = s.pos.y
+                 , easing = easeOutCirc --easeOutLinear
+                 , len = time / 2
+                 , animationType = YPos
+                 , endVal = s.pos.y + height
+                 }),
+         Just (AnimationState 
+                 { elapsedTime = 0
+                 , delay = time / 2
+                 , startVal = s.pos.y + height
+                 , easing = easeOutCirc --easeOutLinear
+                 , len = time / 2
+                 , animationType = YPos
+                 , endVal = s.pos.y
+                 }),
+         Just (AnimationState 
+                 { elapsedTime = 0
+                 , delay = 0
+                 , startVal = s.rot
+                 , easing = easeOutCirc --easeOutLinear
+                 , len = time
+                 , animationType = Rotation
+                 , endVal = s.rot + 359
+                 })]
+                        
 
 -- Apply time t to animationstate
 tickAnim : Time -> Maybe AnimationState -> Maybe AnimationState
@@ -115,8 +162,6 @@ tickSprite t s =
         Nothing -> s
         Just target ->
             let
-                animations' = List.map (tickAnim t) s.animations
-                s' = List.foldr stepAnimation s animations'
                 minDist = 10
                 xmod = if (abs (target.x - s.pos.x)) > minDist
                           then getMotionMod s.pos.x target.x
@@ -124,12 +169,11 @@ tickSprite t s =
                 ymod = if (abs (target.y - s.pos.y)) > minDist
                           then getMotionMod s.pos.y target.y
                           else 0
-                pos = s'.pos
+                pos = s.pos
                 pos' = {pos | x <- pos.x + xmod, y <- pos.y + ymod}
                 --target = if s.pos.x == s.target.x && s.pos.y = s.target.y
             in
-               { s' | animations <- animations' 
-                    , pos <- pos'
+               {s | pos <- pos'
                }
 
 getMods x1 y1 x2 y2 minDist = 
@@ -160,7 +204,7 @@ getNewTarget seed t gs g =
        else
         if g.kind == AlphaGoblin then g else
             let
-                minDistance = 50
+                minDistance = 100
                 newTarget = gs 
                             |> List.filter .moving
                             |> List.map (\s -> {d = distance g s,
@@ -178,7 +222,6 @@ getNewTarget seed t gs g =
                            pos = g.pos
                            pos' = {pos | x <- pos.x + xmod, y <- pos.y + ymod}
                            (next,seed') = Random.generate (Random.float 2000 4000) (Random.initialSeed (round (t + g.pos.x + g.pos.y))) 
-                           foo = Debug.watch "gs" gs
                        in
                           {g | pos <- pos', following <- Just {x = x, y = y}, nextFollow <- next}
                   
@@ -236,7 +279,47 @@ updateHuman t world human =
             in
                 {human | pos <- pos'}
 
+updateGoblin : Time -> World -> Sprite -> Sprite
+updateGoblin t world g =
+    case g.state of
+        Normal ->
+            let 
+                (rfloat, seed') = Random.generate (Random.float 0 10) world.seed
+                nearbyHumans = List.any (\h -> (distance g h) < 16) world.humans 
+                state' = if nearbyHumans then Attacking else g.state
+                g' = g |> ((tickSprite t) << 
+                           (herding world.player) <<
+                           (getNewTarget seed' t world.goblins))
+            in 
+               {g' | state <- state'}
+        Attacking ->
+            let
+                attackDelay = 500
+                nextAttack' = g.nextAttack - (0.1 * t)
+                attackNow = nextAttack' <= 0
+                (hitGen,seed'') = Random.generate (Random.float 0 100) (Random.initialSeed (round (g.pos.x + g.pos.y + t)))
+                successfulHit = hitGen > 75
+                g' = {g | stress <- g.stress + (0.1 * t),
+                          nextAttack <- if attackNow 
+                                           then attackDelay 
+                                           else nextAttack',
+                          animations <- if attackNow
+                                           then g.animations ++ (animJumpFlip g 16 500) 
+                                           else g.animations
+                     }
+            in
+               g'
+        Fleeing ->
+            g
+        Dead ->
+            g
 
+updateAnims t s =
+    let 
+        animations' = List.map (tickAnim t) s.animations
+        s' = List.foldr stepAnimation s animations'
+    in 
+       { s' | animations <- animations' } 
 
 update : Event -> World -> World
 update event world =
@@ -244,11 +327,8 @@ update event world =
         NewFrame t -> 
             let 
                 (rfloat, seed') = Random.generate (Random.float 0 10) world.seed
-                goblins' = List.map ((tickSprite t) << 
-                                     (herding world.player) <<
-                                     (getNewTarget seed' t world.goblins))
-                                      world.goblins 
-                humans' = List.map (updateHuman t world) world.humans
+                goblins' = List.map (updateGoblin t world << updateAnims t) world.goblins 
+                humans' = List.map (updateHuman t world << updateAnims t) world.humans
             in
                { world | goblins <- goblins', seed <- seed', humans <- humans' }
 
@@ -306,7 +386,7 @@ view world =
         player = (world.player.shape world.player.state)
             |> moveX world.player.pos.x 
             |> moveY world.player.pos.y
-        debug = True
+        debug = False
     in
        if debug
           then collage screenWidth screenHeight 
@@ -325,7 +405,9 @@ keyinput =
 ticks = NewFrame <~ (fps 60)
 streams = merge ticks keyinput
 
-startingGoblins = List.map (\x -> goblin (Random.initialSeed x)) [1..100]
+
+
+startingGoblins = List.map (\x -> goblin (Random.initialSeed x)) [1..50]
 startingHumans = List.map (\x -> human (Random.initialSeed x)) [200..225]
 startWorld = { goblins = startingGoblins, player = startingPlayer, humans = startingHumans, seed = Random.initialSeed 200 } 
 

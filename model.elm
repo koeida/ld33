@@ -5,6 +5,7 @@ import List
 import Time exposing (..)
 import Easing exposing (..)
 import Random exposing (..)
+import Debug exposing (..)
 
 type alias World = 
     { player : Sprite
@@ -30,6 +31,8 @@ type alias Sprite =
     , target : Maybe Position
     , following : Maybe Position
     , nextFollow : Time
+    , attackSpeed : Time
+    , nextAttack : Time
     , moving : Bool
     , stress : Float 
     , state : State
@@ -38,7 +41,7 @@ type alias Sprite =
 
 type EntityKind = Player | Goblin | AlphaGoblin | Warrior 
 
-type State = Normal | Attacking | Fleeing
+type State = Normal | Attacking | Fleeing | Dead
 
 type AnimationType 
     = Rotation 
@@ -65,6 +68,7 @@ stepAnimation animation s =
         Just (AnimationState anim) ->
            let 
                pos = s.pos
+               foo = Debug.watch "rot" s.rot
            in
                case anim.animationType of
                     Rotation ->
